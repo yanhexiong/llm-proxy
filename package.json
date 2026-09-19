@@ -1,0 +1,28 @@
+{
+  "name": "llm-proxy-deploy",
+  "version": "0.1.2",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "deploy": "node deploy.mjs"
+  },
+  "dependencies": {
+    "wrangler": "4.134.0"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "保存别名、授权链接、管理员会话和登录限流记录。Cloudflare 自动创建 D1，部署脚本自动建表。"
+      },
+      "ADMIN_USERNAME": {
+        "description": "设置管理员账号，默认 admin。"
+      },
+      "ADMIN_PASSWORD": {
+        "description": "设置管理员登录密码，至少 8 个字符。直接填写密码即可，Cloudflare 将其加密保存为 Worker Secret。"
+      }
+    }
+  }
+}
