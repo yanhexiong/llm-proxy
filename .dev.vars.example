@@ -1,0 +1,6 @@
+# Deploy to Cloudflare reads these three fields as Worker Secrets.
+# Run `node scripts/generate-deploy-secrets.mjs` and paste the resulting
+# values into the deployment form. Never use a sample password or signing key.
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH=
+LINK_SIGNING_SECRET=

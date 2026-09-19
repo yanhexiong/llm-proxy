@@ -1,0 +1,59 @@
+{
+  "name": "workers-protocol-gateway",
+  "version": "0.1.1",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yanhexiong/llm-proxy.git"
+  },
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "pnpm --dir web build",
+    "dev": "pnpm build && wrangler dev",
+    "typecheck": "tsc --noEmit && pnpm --dir web typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:live": "node scripts/live-test.mjs",
+    "test:deploy": "node --test test/deploy-*.test.mjs",
+    "setup": "node scripts/setup.mjs",
+    "setup:button": "node scripts/generate-deploy-secrets.mjs",
+    "deploy": "node scripts/deploy.mjs",
+    "doctor": "node scripts/doctor.mjs",
+    "cf": "wrangler"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "保存别名、授权链接、管理员会话和登录限流记录。Cloudflare 自动创建 D1，部署脚本自动建表。"
+      },
+      "ADMIN_USERNAME": {
+        "description": "管理员登录名，例如 admin。与本地初始化工具生成的 ADMIN_USERNAME 一致。"
+      },
+      "ADMIN_PASSWORD_HASH": {
+        "description": "在源码根目录运行 `node scripts/generate-deploy-secrets.mjs`，复制 .gateway-deploy-secrets.json 中的 ADMIN_PASSWORD_HASH。请填写完整的 pbkdf2_sha256$... 摘要，不要填写明文密码。"
+      },
+      "LINK_SIGNING_SECRET": {
+        "description": "复制同一初始化文件中的 LINK_SIGNING_SECRET。它是工具随机生成的 32 字节链接签名密钥；升级时保留原值，否则旧链接会失效。"
+      }
+    }
+  },
+  "dependencies": {
+    "hono": "4.13.8"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.127.0",
+    "@cloudflare/vitest-plugin": "1.1.12",
+    "@cloudflare/workers-types": "5.20260918.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "26.6.1",
+    "openai": "7.19.0",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "wrangler": "4.134.0"
+  }
+}
