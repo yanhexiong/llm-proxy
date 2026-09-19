@@ -12,4 +12,4 @@
 密码加密保存在 Cloudflare Worker Secret 中，不写入代码、D1 或构建日志。重置密码只需在 Worker 的 Variables and Secrets 中修改 `ADMIN_PASSWORD`。
 
 本分支由维护者自动生成，请在 [main 分支](https://github.com/yanhexiong/llm-proxy) 修改源码。
-版本：0.1.3；源码提交：[3260e55](https://github.com/yanhexiong/llm-proxy/commit/3260e555d46950eb19d1868d6af6c5fb043aefba)。
+版本：0.1.4；源码提交：[165045d](https://github.com/yanhexiong/llm-proxy/commit/165045de8853648d5f49831c223ef457c10cb455)。
