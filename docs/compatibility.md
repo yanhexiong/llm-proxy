@@ -28,6 +28,18 @@
 
 客户端的 `Authorization` 或 `x-api-key` 按上游协议转换；管理员 Cookie 和链接凭证不会发送给上游。默认不自动重试生成请求，也不自动跟随重定向，以免重复调用或把凭据带到其他地址。
 
+## 通用 HTTP 透传
+
+三种已知生成端点（Messages、Responses、Chat Completions）继续按客户端协议校验并执行转换。代理根 `/-` 后的其他 HTTP 路径自动透传，不维护接口白名单或供应商特殊模型路径。因此模型列表、余额、token 用量、计数接口，以及未来新增加的 HTTP 接口均可使用同一机制。
+
+路径映射移除代理根后首个虚拟 `/v1` 挂载前缀，然后把剩余路径追加到绑定的上游 Base URL。已有上游 `/v1`、`/api/v1` 或其他前缀保持不变；请求查询字符串（包括重复键和分页参数）保持原样。编码后的目录跳转、反斜杠或其他可能逃出绑定前缀的路径会被拒绝。网关不会跟随上游重定向。
+
+透传保留请求方法、原始请求体和上游响应（包括非 JSON、流、HTTP 错误），不套用生成接口的 JSON 转换。保留应用自定义请求/响应头，原有认证头优先，缺失的目标协议认证/版本头按上游类型补齐；过滤 Cookie、Host、Origin、Referer、代理来源头、连接专用头和上游 Set-Cookie。返回 `Cache-Control: no-store`，避免缓存不同 Key 的可见模型或用量。
+
+所有透传请求仍校验 HMAC、链接、撤销状态、协议方向和目标绑定，并要求客户端提供上游 Key；别名更新同步生效。这扩大了链接的接口范围：它可以访问绑定基址下的其他 HTTP 接口，具体数据权限仍由上游 API Key 决定。
+
+供应商必须实际开放该接口。例如 DeepSeek 标准基址支持 `/models`，但其 `/anthropic/v1` 兼容基址不提供这个路径，网关会保留实际 404。用量接口若位于另一个基址，可在 CC Switch 等工具中单独配置一条绑定那个基址的代理链接，不需要增加供应商专用代码。[DeepSeek 模型接口](https://api-docs.deepseek.com/api/list-models/)、[CC Switch 用量查询配置](https://github.com/farion1231/cc-switch/blob/main/docs/user-manual/zh/2-providers/2.5-usage-query.md)
+
 ## 流式和错误约定
 
 SSE 解析必须能处理跨网络分块的 UTF-8、多个事件合并、延迟到达的工具名/参数、空结束事件和意外中断。Responses 的增量和 `done` 事件、Messages 的内容块起止、Chat 的 delta/finish/usage/`[DONE]` 顺序均以对应客户端协议为准。上游 HTTP 错误保留状态码，并尽可能保留 `Retry-After` 等有效信息。

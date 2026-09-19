@@ -86,6 +86,22 @@ https://<gateway>/<credential>/<client-protocol>/<upstream-protocol>/u/<upstream
 
 客户端仍需在自己的请求头中发送原上游 Key。管理员 Cookie 和链接凭证不会转发给上游；运行日志只记录请求 ID、链接 ID、协议方向、耗时、状态和错误类型。
 
+### 模型列表、用量及其他接口透传
+
+同一条代理链接支持通用 HTTP 接口，无需重新生成链接。三种已知生成接口继续按所选协议转换；其他路径自动透传，包括 `/models`、`/token_usage`、`/api/usage/token`、`/messages/count_tokens` 或供应商未来新增的接口。不需要为每个供应商、工具或接口修改网关代码。
+
+客户端仍使用原上游 API Key。网关保留 HTTP 方法、查询参数、请求体、响应体、HTTP 状态和应用自定义头（如 `New-API-User`），补充缺失的目标协议认证头；管理员 Cookie、Host 和连接专用头不会转发。透传结果使用 `Cache-Control: no-store`。
+
+以绑定上游 `https://vendor.example/api/v1` 为例，`/-` 后的第一个 `/v1` 是 SDK 挂载前缀，只移除一次：
+
+| 客户端请求后缀 | 实际上游地址 |
+| --- | --- |
+| `/-/v1/models` 或 `/-/models` | `https://vendor.example/api/v1/models` |
+| `/-/v1/token_usage?period=day` | `https://vendor.example/api/v1/token_usage?period=day` |
+| `/-/api/usage/token` | `https://vendor.example/api/v1/api/usage/token` |
+
+网关不猜测或删除供应商自己的路径前缀，不跨域寻找接口。供应商必须在该 Base URL 下提供相应接口；如果用量接口位于另一个基址，可生成绑定该基址的链接，填入工具的独立用量查询 Base URL。链接撤销后所有接口同时失效。
+
 ## 自定义域名
 
 首次部署默认使用 Wrangler 输出的 `workers.dev` 地址。需要自定义域名时：
@@ -162,6 +178,7 @@ pnpm exec wrangler d1 execute <database-name> --remote --file backup-<date>.sql
 - [协议兼容性和归属说明](docs/compatibility.md)
 - [部署与运维细节](docs/deployment.md)
 - [只填账密的按钮部署验收](docs/button-deployment-verification.md)
+- [模型发现与通用透传验收](docs/passthrough-verification.md)
 - [版本变更记录](CHANGELOG.md)
 - [2026-09-19 公网验收记录](docs/live-verification-2026-09-19.md)
 
@@ -171,6 +188,7 @@ pnpm exec wrangler d1 execute <database-name> --remote --file backup-<date>.sql
 
 ```text
 pnpm run test:live matrix
+pnpm run test:live models
 pnpm run test:live sdk
 pnpm run test:live tools
 pnpm run test:live images

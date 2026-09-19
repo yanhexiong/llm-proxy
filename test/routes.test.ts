@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { assertClientEndpoint, normalizeBaseUrl, parseProxyRoute, proxyUrls, upstreamEndpoint } from "../src/routes";
+import { passthroughUrl } from "../src/passthrough";
 
 describe("gateway URL handling", () => {
+  it("rejects nested traversal even beside a literal percent sign while preserving ordinary encoded paths", () => {
+    expect(() => passthroughUrl("https://upstream.example/tenant", "/v1/%252e%252e%252fprivate%25ZZ", "")).toThrow("within the bound");
+    expect(passthroughUrl("https://upstream.example/tenant", "/v1/files/name%25", "?cursor=a%2Fb&cursor=c"))
+      .toBe("https://upstream.example/tenant/files/name%25?cursor=a%2Fb&cursor=c");
+  });
   it("normalizes an HTTPS base URL without inventing /v1", () => {
     expect(normalizeBaseUrl("api.example.com/api/v1/")).toBe("https://api.example.com/api/v1");
     expect(upstreamEndpoint("api.example.com/api/v1", "chat")).toBe(

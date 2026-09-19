@@ -7,6 +7,15 @@ const ENDPOINTS: Record<Protocol, string> = {
   chat: "/v1/chat/completions",
 };
 
+function canonicalGenerationEndpoint(endpoint: string): string {
+  const path = endpoint.replace(/\/+$/u, "");
+  return path.startsWith("/v1/") ? path : `/v1${path}`;
+}
+
+export function isGenerationEndpoint(endpoint: string): boolean {
+  return Object.values(ENDPOINTS).includes(canonicalGenerationEndpoint(endpoint));
+}
+
 export function isProtocol(value: string): value is Protocol {
   return (PROTOCOLS as readonly string[]).includes(value);
 }
@@ -57,12 +66,9 @@ export function upstreamEndpoint(baseUrl: string, protocol: Protocol): string {
 }
 
 export function parseProxyRoute(pathname: string): ProxyRoute | null {
-  const matched = (Object.entries(ENDPOINTS) as [Protocol, string][]).find(([, endpoint]) =>
-    pathname.endsWith(`/-${endpoint}`),
-  );
-  if (!matched) return null;
-  const [, endpoint] = matched;
-  const marker = pathname.length - endpoint.length - 2;
+  const marker = pathname.endsWith("/-") ? pathname.length - 2 : pathname.lastIndexOf("/-/");
+  if (marker < 1) return null;
+  const endpoint = pathname.slice(marker + 2) || "/";
   const prefix = pathname.slice(1, marker).split("/");
   if (prefix.length < 5) return null;
   const [credential, client, upstream, mode, ...targetParts] = prefix;
@@ -86,7 +92,8 @@ export function parseProxyRoute(pathname: string): ProxyRoute | null {
 }
 
 export function assertClientEndpoint(route: ProxyRoute): void {
-  if (route.clientEndpoint !== ENDPOINTS[route.clientProtocol]) {
+  if (!isGenerationEndpoint(route.clientEndpoint)) return;
+  if (canonicalGenerationEndpoint(route.clientEndpoint) !== ENDPOINTS[route.clientProtocol]) {
     throw new GatewayError(
       404,
       "protocol_endpoint_mismatch",

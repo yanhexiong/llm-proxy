@@ -270,7 +270,52 @@ try {
       });
     } else for (const client of protocols) for (const upstream of protocols) {
       const link = links[`${client}->${upstream}`];
-      if (mode === "truncate") {
+      if (mode === "models") {
+        const proxyRoot = link.base_url.replace(/\/v1$/, "");
+        const upstreamResponse = await request(`${upstreamBases[upstream]}/models`, { headers: upstream === "messages"
+          ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+          : { authorization: `Bearer ${apiKey}` } });
+        const expectedStatus = upstreamResponse.status;
+        await upstreamResponse.body?.cancel();
+        for (const path of ["/models", "/v1/models"]) await record(`${client}->${upstream}:GET${path}`, async () => {
+          const response = await request(`${proxyRoot}${path}`, { headers: client === "messages"
+            ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
+            : { authorization: `Bearer ${apiKey}` } });
+          assert.equal(response.status, expectedStatus);
+          assert.equal(response.headers.get("cache-control"), "no-store");
+          if (expectedStatus !== 200) {
+            await response.body?.cancel();
+            return { status: response.status, matches_upstream: true };
+          }
+          const body = await response.json();
+          assert(Array.isArray(body.data), "model response lacks a data array");
+          assert(body.data.some(item => item.id === model), "configured model absent from list");
+          return { status: response.status, models: body.data.map(item => item.id) };
+        });
+        await record(`${client}->${upstream}:models-sdk`, async () => {
+          const sdk = client === "messages"
+            ? new Anthropic({ apiKey, baseURL: link.base_url, maxRetries: 0, timeout: 20000 })
+            : new OpenAI({ apiKey, baseURL: link.base_url, maxRetries: 0, timeout: 20000 });
+          if (expectedStatus !== 200) {
+            await assert.rejects(sdk.models.list(), error => error.status === expectedStatus);
+            return { status: expectedStatus, matches_upstream: true };
+          }
+          const page = await sdk.models.list();
+          assert(page.data.some(item => item.id === model), "SDK model list lacks configured model");
+          return { models: page.data.map(item => item.id) };
+        });
+        // A separate provider API verifies the general fallback, without
+        // logging account balances or executing model generation.
+        if (upstream !== "messages") await record(`${client}->${upstream}:GET/user/balance`, async () => {
+          const response = await request(`${proxyRoot}/v1/user/balance`, { headers: { authorization: `Bearer ${apiKey}` } });
+          assert.equal(response.status, 200);
+          const body = await response.json();
+          assert.equal(typeof body.is_available, "boolean");
+          assert(Array.isArray(body.balance_infos));
+          return { status: response.status, provider_response_shape_preserved: true };
+        });
+      }
+      else if (mode === "truncate") {
         if (client === upstream) continue;
         for (const stream of [false, true]) await record(`${client}->${upstream}:truncate-${stream ? "stream" : "json"}`, async () => {
           const body = payload(client, stream, "List all integers from 1 to 10000, separated by spaces, without shortcuts.");

@@ -2,11 +2,12 @@ import type { Context } from "hono";
 import { verifyCredential } from "./auth";
 import { findLink } from "./db";
 import { GatewayError, errorResponse, forwardableResponseHeaders, parseJsonObject } from "./http";
-import { assertClientEndpoint, displayBaseUrl, normalizeBaseUrl, upstreamEndpoint } from "./routes";
+import { assertClientEndpoint, displayBaseUrl, isGenerationEndpoint, normalizeBaseUrl, upstreamEndpoint } from "./routes";
 import type { Env, Protocol, ProxyRoute } from "./types";
 import { convertRequest, convertResponse, convertSseStream, ProtocolConversionError } from "./protocols";
 import { fetchUpstream } from "./upstream";
 import { prepareConvertedUpstream } from "./provider-compat";
+import { passthroughRequestHeaders, passthroughResponseHeaders, passthroughUrl } from "./passthrough";
 
 function extractUpstreamKey(headers: Headers): string {
   const apiKey = headers.get("x-api-key")?.trim();
@@ -95,7 +96,10 @@ function conversionFailure(error: unknown): never {
 }
 
 export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRoute): Promise<Response> {
-  if (c.req.method !== "POST") throw new GatewayError(405, "method_not_allowed", "Model endpoints accept POST only");
+  const passthrough = !isGenerationEndpoint(route.clientEndpoint);
+  if (!passthrough && c.req.method !== "POST") {
+    throw new GatewayError(405, "method_not_allowed", "Generation endpoints accept POST only");
+  }
   assertClientEndpoint(route);
   const requestId = crypto.randomUUID();
   const started = Date.now();
@@ -105,13 +109,16 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
   try {
     const bound = await boundTarget(c, route);
     linkId = bound.linkId;
-    const target = upstreamEndpoint(bound.baseUrl, route.upstreamProtocol);
-    const headers = upstreamHeaders(c.req.raw, route.upstreamProtocol, requestId);
+    const target = passthrough
+      ? passthroughUrl(bound.baseUrl, route.clientEndpoint, new URL(c.req.url).search)
+      : upstreamEndpoint(bound.baseUrl, route.upstreamProtocol);
+    const protocolHeaders = upstreamHeaders(c.req.raw, route.upstreamProtocol, requestId);
+    const headers = passthrough ? passthroughRequestHeaders(c.req.raw, protocolHeaders) : protocolHeaders;
     const sameProtocol = route.clientProtocol === route.upstreamProtocol;
     let body: BodyInit | null;
     let streamingRequested = false;
 
-    if (sameProtocol) {
+    if (passthrough || sameProtocol) {
       body = c.req.raw.body;
     } else {
       const clientBody = parseJsonObject(await c.req.json().catch(() => null));
@@ -128,21 +135,22 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
 
     const timeoutMs = Math.max(1_000, Number(c.env.UPSTREAM_TIMEOUT_MS ?? "120000") || 120_000);
     const upstream = await fetchUpstream(target, {
-        method: "POST",
+        method: passthrough ? c.req.method : "POST",
         headers,
         body,
     }, c.req.raw.signal, timeoutMs);
 
     status = upstream.status;
     if (!upstream.ok) errorType = `upstream_http_${upstream.status}`;
-    if (!upstream.ok && !sameProtocol) {
+    if (!upstream.ok && !sameProtocol && !passthrough) {
       return await convertedUpstreamError(upstream, route.clientProtocol, requestId);
     }
-    const responseHeaders = forwardableResponseHeaders(upstream.headers);
+    const responseHeaders = passthrough ? passthroughResponseHeaders(upstream.headers) : forwardableResponseHeaders(upstream.headers);
     responseHeaders.set("x-request-id", requestId);
 
-    if (sameProtocol) {
-      return new Response(upstream.body, { status: upstream.status, headers: responseHeaders });
+    if (passthrough || sameProtocol) {
+      if (c.req.method === "HEAD") await upstream.body?.cancel();
+      return new Response(c.req.method === "HEAD" ? null : upstream.body, { status: upstream.status, headers: responseHeaders });
     }
 
     const isEventStream = upstream.headers.get("content-type")?.toLowerCase().includes("text/event-stream");
