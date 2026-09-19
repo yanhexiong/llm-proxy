@@ -2,43 +2,44 @@
 
 ## Cloudflare 按钮部署
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fyanhexiong%2Fllm-proxy)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fyanhexiong%2Fllm-proxy%2Ftree%2Fdeploy)
 
-这是 Cloudflare 官方的公开仓库模板部署流程，使用 Workers Builds，不需要在 GitHub Actions 中保存 Cloudflare API Token。
+点击按钮，填写 `ADMIN_USERNAME`（账号）和 `ADMIN_PASSWORD`（至少 8 个字符的密码），然后部署。成功后在 Worker → **Settings → Domains & Routes → Add → Custom domain** 中输入域名，打开域名登录即可。Cloudflare 自身的账号授权与资源名称确认保留默认流程，资源名称可使用默认值。
+
+按钮指向 `deploy` 分支，里面已经包含编译好的 Worker JavaScript 和管理页面。用户不需要下载源码、安装开发工具、运行本地脚本、生成密码摘要或签名密钥；构建命令自动留空。平台会自动安装 Wrangler 发布工具，然后执行模板预设的部署命令。
 
 ```text
-node scripts/generate-deploy-secrets.mjs（本地，仅运行一次）
-   `-- 生成 .gateway-deploy-secrets.json，包含用户名、密码摘要和随机签名密钥
+点击按钮，填写管理员账号和密码
+   |-- Cloudflare 创建仓库、Worker、D1，填入实际数据库 ID
+   |-- Cloudflare 加密保存账号和密码两个 Worker Secrets
+   `-- 自动执行 npm run deploy（预编译分支）
+         |-- 验证资源、预编译文件和两个凭据字段
+         |-- 缺少签名密钥时自动生成并保存；已存在则复用
+         |-- 按 DB 绑定自动应用建表迁移
+         |-- 上传已编译 Worker 和静态资源
+         `-- /health 就绪检查
 
-点击按钮，在 Cloudflare 表单中选择资源名并填入三个 Secrets
-   |-- Cloudflare 创建仓库、Worker、D1，并将实际 D1 ID 写入 wrangler.jsonc
-   |-- Cloudflare 配置 .dev.vars.example 声明的 Worker Secrets
-   |-- 安装依赖、pnpm run build
-   `-- pnpm run deploy（无本地状态文件）
-         |-- 验证 DB 绑定已有真实数据库 ID
-         |-- 类型检查、构建、Wrangler dry-run、Secret 名称预检
-         |-- wrangler d1 migrations apply DB --remote
-         |-- wrangler deploy
-         `-- GET /health
+部署完成 → 在 Cloudflare 绑定域名 → 用刚才的账密登录
 ```
 
-迁移使用固定绑定名 `DB`，因此用户可以在按钮页面更改 D1 的显示名称。部署脚本不会在构建环境里运行交互式 setup、重新生成 Secrets 或再创建数据库。它也不要求把运行时 Secrets 复制到构建变量里；通过 Wrangler 只检查远端 Secret 名称，具体值不会输出。
-
-根配置使用全零数据库 ID 作为模板占位符。只有 Cloudflare 自动配置为真实 ID 后才能进入无状态部署路径；直接下载源码后运行 `pnpm run deploy` 会提示先运行本地 `setup`。公共配置没有账号 ID 和个人域名，每个按钮部署默认获得自己的 `workers.dev` 地址。
-
-构建配置使用仓库根目录、`pnpm run build` 和 `pnpm run deploy`，不要改成裸 `wrangler deploy`，否则会跳过数据库迁移和健康检查。`.node-version` 指定 Node.js 24，`packageManager` 固定 pnpm 12.4.2；如果构建平台没有切换到固定版本，在构建变量中设置 `PNPM_VERSION=12.4.2`。
+密码存放在 Cloudflare 加密的 Worker Secret 中，不写入源码、数据库或日志，也不复制到构建环境。签名密钥同样作为 Worker Secret 保存，重新部署不会轮换它，旧链接继续有效。
 
 | 问题 | 处理 |
 | --- | --- |
-| 表单要求填写密码摘要和签名密钥 | 本地运行初始化工具，从生成的 JSON 文件复制对应值。密码摘要必须完整保留 `$` 分隔符；登录仍输入原密码。 |
-| Secret 预检失败 | 检查 Worker 的 Settings → Variables and Secrets，补齐 `ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`、`LINK_SIGNING_SECRET` 后重新构建。 |
-| DB 仍然是占位符 | 检查按钮是否从公开仓库根目录启动、Cloudflare 资源创建是否成功。不要手工复制其他实例的数据库 ID。 |
-| 缺少 D1 或 Worker 权限 | 检查该 Worker 的构建部署凭据是否可执行 D1 迁移、读取 Worker Secret 名称和发布 Worker。 |
-| 初始化文件已存在 | 工具故意不覆盖已有密钥。升级复用原文件；新建另一实例时先安全保存旧文件，再生成新文件。 |
+| 仍要求填写摘要、签名密钥或编译命令 | 回到本页使用最新按钮，目标 URL 应包含 `/tree/deploy`。以前创建的旧表单或源码分支仍可能保留旧设置。 |
+| 密码填空或不足 8 个字符 | 在 Worker 的 Settings → Variables and Secrets 中修正 `ADMIN_PASSWORD` 并保存部署。 |
+| DB 仍然是占位符 | 检查 Cloudflare 的资源创建结果；按钮必须使用预编译 `deploy` 分支。 |
+| 自动创建签名密钥或迁移失败 | 检查 Cloudflare 部署凭据的 Worker Secret 写入、D1 和 Worker 发布权限后重试；无需手工生成密钥。 |
 
-按钮部署的更新沿用 Cloudflare 创建的仓库与资源；合并上游代码时保留该实例的 Worker 名称、真实 D1 ID、自定义域名和原有 Secrets。更换密码可以本地运行 `node scripts/hash-password.mjs`，然后仅更新 Worker 的 `ADMIN_PASSWORD_HASH` Secret。本文后面的 `setup`、`doctor` 和密码重置向导基于本地状态；按钮实例没有状态文件时，直接使用实际 `wrangler.jsonc` 执行 Wrangler 命令或在 Dashboard 操作。
+更换密码只需在 Cloudflare 修改 `ADMIN_PASSWORD` 并保存部署。更新部署包时保留自己实例的 Worker 名称、实际 D1 ID、域名和原有 Secrets。后文的命令行向导针对开发者和已有源码部署，不是按钮部署的必需步骤。
 
-参考：[Cloudflare 部署按钮](https://developers.cloudflare.com/workers/platform/deploy-buttons/)、[Workers Builds 构建环境](https://developers.cloudflare.com/workers/ci-cd/builds/build-image/)。
+参考：[Cloudflare 部署按钮](https://developers.cloudflare.com/workers/platform/deploy-buttons/)、[绑定自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。
+
+## 维护预编译分支
+
+`main` 保存源码，`deploy` 只保存预编译文件、迁移和轻量部署脚本。GitHub Actions 在 `main` 更新后自动检查、编译并发布 `deploy` 分支，部署用户不承担编译步骤。分支的 `template-version.json` 记录对应源码提交。
+
+维护者可在源码提交后手动执行 `pnpm run build:template` 和 `node scripts/publish-deploy-template.mjs`。生成器只接受空输出目录；发布器使用独立 Git index，保留 `main` 的工作区和暂存区，以普通快进提交更新 `deploy`，不强制覆盖历史。
 
 ## 生命周期
 
@@ -63,7 +64,7 @@ pnpm run deploy
 
 ## 本地状态
 
-`.gateway-state.json` 只保存 Worker/D1 名称和 ID、本地路由、配置路径、公开健康检查地址、时间戳以及 Secret 名称，不保存明文密码或 Secret 值。`.gateway-pending-secrets.json` 只在首次 Worker 尚未存在时产生，包含密码摘要和签名密钥，权限为 `0600`；首次成功上传后删除。按钮初始化工具单独生成 `.gateway-deploy-secrets.json`，同样使用 `0600` 权限且禁止覆盖。以上文件、生成的 Wrangler 配置和 `.env` 都已加入 `.gitignore`。
+`.gateway-state.json` 只保存 Worker/D1 名称和 ID、本地路由、配置路径、公开健康检查地址、时间戳以及 Secret 名称，不保存明文密码或 Secret 值。`.gateway-pending-secrets.json` 只在命令行首次 Worker 尚未存在时产生，包含密码摘要和签名密钥，权限为 `0600`；首次成功上传后删除。以上文件、旧版初始化文件、生成配置和 `.env` 都已加入 `.gitignore`。新版按钮部署不创建本地状态或凭据文件。
 
 如 setup 在上传 Secret 时中断，不要手工生成新数据库或删除待上传文件；修复权限后重跑 `pnpm run setup` 或 `pnpm run deploy`。已有远端 Secret 不会被 setup 覆盖。
 
@@ -80,7 +81,9 @@ pnpm run deploy
 
 ## Secret 和会话
 
-`ADMIN_PASSWORD_HASH` 使用 `pbkdf2_sha256$迭代次数$base64url盐$base64url摘要` 格式，当前脚本默认 100,000 次 SHA-256 PBKDF2，符合 Workers WebCrypto 的迭代上限。验证逻辑拒绝格式错误并使用恒定时间比较。`LINK_SIGNING_SECRET` 由 setup 随机生成 32 字节 base64url 字符串。不要在日志、Issue、截图或代理 URL 中泄漏它们。
+按钮部署使用加密保存的 `ADMIN_PASSWORD` Secret，验证时比较固定长度摘要，避免直接比较密码字符串。该字段一旦存在就优先使用；空值或不足 8 个字符时拒绝登录，不回退旧密码摘要。
+
+命令行旧实例继续兼容 `ADMIN_PASSWORD_HASH`，使用 `pbkdf2_sha256$迭代次数$base64url盐$base64url摘要` 格式、100,000 次 SHA-256 PBKDF2。`LINK_SIGNING_SECRET` 由部署脚本或命令行 setup 自动生成随机 32 字节 base64url 字符串，不在表单中要求用户填写。
 
 管理员会话令牌只以 SHA-256 摘要存入 D1；Cookie 应由后端设置 `HttpOnly`、`Secure`、`SameSite` 并限制有效期。链接凭证和管理员会话是两套独立授权，不要把管理员 Cookie 作为上游认证头。
 

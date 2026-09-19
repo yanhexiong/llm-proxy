@@ -1,32 +1,23 @@
 # Workers API Gateway
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fyanhexiong%2Fllm-proxy)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2Fyanhexiong%2Fllm-proxy%2Ftree%2Fdeploy)
 
 这是一个部署在 Cloudflare Workers 的轻量协议转换网关。它使用一个 Worker、Workers Static Assets 和一个 D1 数据库；客户端只需修改 Base URL，继续发送原协议请求和原上游 API Key。
 
 ## 通过 Cloudflare 按钮部署
 
-按钮会从 [yanhexiong/llm-proxy](https://github.com/yanhexiong/llm-proxy) 创建一份属于你的仓库，并在你的 Cloudflare 账户中创建 Worker 和 D1、构建管理页面、应用数据库迁移。无需填写数据库 ID 或手工执行 SQL。
+**点击按钮 → 填管理员账号和密码 → 部署 → 绑定域名。**
 
-1. 准备一个 Cloudflare 账户和 GitHub 账户；下载本仓库源码，在本地安装 Node.js 22+。
-2. 在源码根目录运行 `node scripts/generate-deploy-secrets.mjs`。输入管理员用户名和密码后，会生成 `.gateway-deploy-secrets.json`；这一步不需要安装依赖，也不访问 Cloudflare。
-3. 点击上方 **Deploy to Cloudflare** 按钮，授权 GitHub，选择账户和新仓库／Worker／D1 名称。
-4. 将初始化文件中的三个值分别填入部署表单的 Secrets：
+1. 点击上方按钮，登录 Cloudflare 并授权 GitHub。仓库、Worker 和数据库名称可以保留平台默认值。
+2. 填写 `ADMIN_USERNAME`（管理员账号，默认 `admin`）和 `ADMIN_PASSWORD`（管理员密码，至少 8 个字符），点击部署。
+3. 部署完成后，在 Worker → **Settings → Domains & Routes → Add → Custom domain** 中输入你的域名。
+4. 打开域名，用刚才设置的账号密码登录。
 
-   | 字段 | 填写内容 |
-   | --- | --- |
-   | `ADMIN_USERNAME` | 管理员用户名，默认 `admin` |
-   | `ADMIN_PASSWORD_HASH` | 工具生成的完整 `pbkdf2_sha256$...` 密码摘要 |
-   | `LINK_SIGNING_SECRET` | 工具生成的随机签名密钥 |
+按钮使用 [deploy 分支中的预编译部署包](https://github.com/yanhexiong/llm-proxy/tree/deploy)。不需要下载源码、安装 Node.js、在本地执行命令或手工生成密钥。构建命令自动留空，部署命令由模板自动提供；云端只安装发布工具并上传现成的 Worker 和管理页面，不编译 TypeScript 或 React。D1 创建、建表和随机签名密钥初始化均自动完成。
 
-5. 保留项目根目录 `/`，确认构建命令为 `pnpm run build`、部署命令为 `pnpm run deploy`，然后部署。平台自动安装依赖；仓库固定 pnpm 12.4.2，并用 `.node-version` 选择 Node.js 24。若平台要求显式指定 pnpm 版本，在**构建变量**中设置 `PNPM_VERSION=12.4.2`。
-6. 打开部署输出的 `workers.dev` 地址，用原始用户名和密码登录；`/health` 应返回 `{"status":"ready"}`。
+密码由 Cloudflare 加密保存为 Worker Secret。重新部署会保留签名密钥，已有链接继续有效。Cloudflare 自身的账号授权和资源名确认属于平台固定流程，本项目额外要求填写的配置只有账号、密码两项。[官方按钮机制说明](https://developers.cloudflare.com/workers/platform/deploy-buttons/)
 
-三个值是 **Worker 运行时 Secrets**，无需再添加为构建环境变量。初始化文件不保存明文密码，但包含签名密钥，已加入 `.gitignore`；再次运行工具不会覆盖它。升级时沿用原来的三个值，尤其不要重新生成签名密钥，否则旧链接会失效。
-
-公共模板不绑定任何个人域名。部署后可在自己的 Worker 设置中添加自定义域名。按钮部署机制及字段来源见 [Cloudflare 官方说明](https://developers.cloudflare.com/workers/platform/deploy-buttons/)，具体流程和排错见 [部署文档](docs/deployment.md#cloudflare-按钮部署)。
-
-## 命令行首次部署
+## 开发者：从源码部署
 
 要求：Node.js 22+、pnpm 12.4.2（仓库 `packageManager` 已固定），以及一个有 Workers 和 D1 权限的 Cloudflare 账户。
 
@@ -45,7 +36,7 @@ pnpm 将 `setup`、`deploy`、`doctor` 保留为自身命令，因此这里必�
 
 | 命令 | 作用 | 是否会改 Cloudflare 资源 |
 | --- | --- | --- |
-| `pnpm run setup:button` | 为按钮部署生成本地密码摘要和随机签名密钥 | 否，仅创建本地凭据文件 |
+| `pnpm run build:template` | 维护者构建预编译部署包，供按钮用户直接部署 | 否 |
 | `pnpm run setup` | 登录、复用或创建 D1、生成配置和必要 Secrets；可重复运行 | 首次创建 D1，必要时写入 Secrets |
 | `pnpm run deploy` | 构建、应用远端迁移、发布 Worker、上传首次 Secret、检查 `/health` | 发布 Worker、写入迁移和 Secrets |
 | `pnpm run doctor` | 检查 Node/pnpm/Wrangler、账户、D1 绑定、迁移、Secret 名称和公开健康状态 | 只写本地生成的配置，不改远端 |
@@ -54,7 +45,7 @@ pnpm 将 `setup`、`deploy`、`doctor` 保留为自身命令，因此这里必�
 
 脚本是 Node.js 实现，不依赖 Bash、`sed`、`grep` 或 Linux 专用路径；Windows PowerShell、macOS 和 Linux 使用同一组命令。脚本默认调用 `pnpm exec wrangler`，也可以用 `PNPM_BIN` 指定 pnpm 可执行文件。
 
-## 配置和 Secret
+## 开发者配置和 Secret
 
 项目配置以仓库中的 `wrangler.jsonc` 为准。命令行向导按 `.gateway-state.json` 生成临时 `.gateway-wrangler.jsonc`，注入实际 D1 ID 和本地自定义域名后供迁移和部署使用。按钮部署则直接使用 Cloudflare 已填写实际 D1 ID 的源码配置，不依赖本地状态文件。两条路径都不会重复创建数据库。
 
@@ -67,11 +58,11 @@ pnpm 将 `setup`、`deploy`、`doctor` 保留为自身命令，因此这里必�
 | `PUBLIC_URL` | 环境变量 | 部署后的健康检查地址 | Wrangler 输出的 `workers.dev` 地址 | 自定义域名或无法解析输出时填写 |
 | `UPSTREAM_TIMEOUT_MS` | Worker 普通变量 | 上游请求超时，毫秒 | `120000` | 否 |
 | `ADMIN_USERNAME` | 环境变量/Secret | 管理员用户名 | setup 首次询问，写入 Secret | 首次 setup 必填 |
-| `ADMIN_PASSWORD` | 环境变量 | 无交互 setup/reset 的明文密码 | 不保存、不写入状态文件 | 仅无交互时必填 |
-| `ADMIN_PASSWORD_HASH` | Worker Secret | PBKDF2-SHA-256 管理员密码摘要 | setup 生成 | 必填 |
-| `LINK_SIGNING_SECRET` | Worker Secret | 生成链接凭证的 HMAC 密钥 | setup 随机生成 32 字节 | 必填 |
+| `ADMIN_PASSWORD` | Worker Secret／本地环境变量 | 按钮部署直接设置的登录密码；本地也用于无交互 setup/reset | 按钮表单填写，Cloudflare 加密保存 | 按钮部署必填 |
+| `ADMIN_PASSWORD_HASH` | Worker Secret | 兼容命令行部署的 PBKDF2-SHA-256 密码摘要 | setup 生成 | 未设置 `ADMIN_PASSWORD` 时使用 |
+| `LINK_SIGNING_SECRET` | Worker Secret | 生成链接凭证的 HMAC 密钥 | 部署脚本自动生成随机 32 字节密钥并复用 | 自动配置，无需填写 |
 
-命令行部署可参考 `.env.setup.example`，但脚本不会自动加载它；CI 中请使用平台的 Secret 存储注入环境变量。`.dev.vars.example` 专供 Cloudflare 按钮识别三个运行时 Secret，请勿把命令行路径、账户信息或明文密码加入该文件。
+命令行部署可参考 `.env.setup.example`，但脚本不会自动加载它。`.dev.vars.example` 只声明账号和密码两个运行时 Secret，文件内不存放真实密码。`ADMIN_PASSWORD` 一旦配置就优先于旧摘要；空值或少于 8 个字符会阻止登录，不回退旧密码。
 
 ## 管理页面和代理链接
 
@@ -107,7 +98,9 @@ https://<gateway>/<credential>/<client-protocol>/<upstream-protocol>/u/<upstream
 
 ## 密码重置
 
-已发布 Worker：
+按钮部署：在 Worker → **Settings → Variables and Secrets** 中修改 `ADMIN_PASSWORD` 并保存部署即可。
+
+使用旧摘要方式的命令行实例：
 
 ```text
 pnpm exec node scripts/reset-password.mjs
@@ -154,7 +147,7 @@ pnpm exec wrangler d1 execute <database-name> --remote --file backup-<date>.sql
 | 首次 setup 显示 Worker 不存在 | 正常。必要 Secret 会暂存到 `.gateway-pending-secrets.json`，第一次 deploy 成功后上传；不要删除该文件。 |
 | 迁移失败 | 保留数据库和迁移记录，修复构建/权限/SQL 后重试 `pnpm run deploy`。不要手工删除 D1 表或迁移表。 |
 | 部署成功但 `/health` 失败 | 检查 `PUBLIC_URL`、自定义域名 DNS/TLS、Worker 路由和 Secret；`pnpm run doctor` 会区分本地配置、远端权限和公开网络问题。 |
-| `ADMIN_PASSWORD_HASH` 缺失 | 运行 `pnpm run setup` 补齐 Secret，或运行密码重置脚本；Secret 值不会由 doctor 打印。 |
+| 管理员凭据缺失 | 按钮实例在 Worker 设置中填写 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD`；命令行实例运行 `pnpm run setup`。 |
 | Windows 找不到 `pnpm` | 安装 pnpm 并重新打开 PowerShell；也可设置 `PNPM_BIN` 指向 `pnpm.cmd`。脚本不依赖 Bash。 |
 | SDK 返回 404 | 检查客户端协议是否与链接第一段一致，以及 OpenAI/Anthropic SDK 是否按文档追加 `/-/v1` 或 `/-`。 |
 
@@ -168,6 +161,7 @@ pnpm exec wrangler d1 execute <database-name> --remote --file backup-<date>.sql
 
 - [协议兼容性和归属说明](docs/compatibility.md)
 - [部署与运维细节](docs/deployment.md)
+- [只填账密的按钮部署验收](docs/button-deployment-verification.md)
 - [版本变更记录](CHANGELOG.md)
 - [2026-09-19 公网验收记录](docs/live-verification-2026-09-19.md)
 

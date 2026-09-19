@@ -26,6 +26,14 @@ import {
 } from "./lib/common.mjs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
+import {
+  ADMIN_PASSWORD_HASH_SECRET,
+  ADMIN_PASSWORD_SECRET,
+  LINK_SIGNING_SECRET,
+  generateLinkSigningSecret,
+  missingCredentialSecretNames,
+  missingRuntimeSecretNames,
+} from "./lib/cloudflare-secrets.mjs";
 
 const D1_DATABASE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -185,10 +193,36 @@ function runDryRun(configPath) {
 
 function pendingHas(names) {
   const pending = loadPendingSecrets() || {};
-  return names.every((name) => Boolean(pending[name]));
+  return names.every((name) => {
+    if (name === `${ADMIN_PASSWORD_SECRET} or ${ADMIN_PASSWORD_HASH_SECRET}`) {
+      return Boolean(pending[ADMIN_PASSWORD_SECRET] || pending[ADMIN_PASSWORD_HASH_SECRET]);
+    }
+    return Boolean(pending[name]);
+  });
 }
 
-function assertRequiredSecrets(configPath, { allowPending = false } = {}) {
+function provisionPlatformLinkSecret(configPath, names) {
+  if (names.names.has(LINK_SIGNING_SECRET)) return names;
+  info("Worker 缺少 LINK_SIGNING_SECRET，生成并上传一次新的随机签名密钥。");
+  // The value is supplied through stdin and is never included in logs.
+  runWrangler(["secret", "put", LINK_SIGNING_SECRET], {
+    configPath,
+    input: `${generateLinkSigningSecret()}\n`,
+    label: `上传 Worker Secret ${LINK_SIGNING_SECRET}`,
+  });
+  const verified = listSecretNames(configPath);
+  if (!verified.ok || !verified.names.has(LINK_SIGNING_SECRET)) {
+    throw new Error(
+      "LINK_SIGNING_SECRET 已尝试上传，但无法确认运行时 Secret 名称；已停止迁移和发布。",
+    );
+  }
+  return verified;
+}
+
+function assertRequiredSecrets(
+  configPath,
+  { allowPending = false, platform = false } = {},
+) {
   const names = listSecretNames(configPath);
   if (!names.ok) {
     if (allowPending && names.workerMissing && pendingHas(REQUIRED_SECRET_NAMES)) {
@@ -200,7 +234,17 @@ function assertRequiredSecrets(configPath, { allowPending = false } = {}) {
       }`,
     );
   }
-  const missing = REQUIRED_SECRET_NAMES.filter((name) => !names.names.has(name));
+  const missingCredentials = missingCredentialSecretNames(names.names);
+  if (missingCredentials.length > 0) {
+    if (allowPending && pendingHas(missingCredentials)) return names;
+    throw new Error(
+      `Worker 缺少管理员凭据 Secret：${missingCredentials.join(", ")}。请在 Cloudflare Worker 设置中配置 ADMIN_USERNAME 和 ADMIN_PASSWORD，或保留兼容的 ADMIN_PASSWORD_HASH；本地部署可运行 pnpm run setup。已停止发布。`,
+    );
+  }
+  const missing = missingRuntimeSecretNames(names.names);
+  if (platform && missing.includes(LINK_SIGNING_SECRET)) {
+    return provisionPlatformLinkSecret(configPath, names);
+  }
   if (missing.length > 0) {
     if (allowPending && pendingHas(missing)) return names;
     throw new Error(
@@ -321,10 +365,15 @@ export async function main() {
   runTypecheck();
   runBuild();
   runDryRun(configPath);
-  assertRequiredSecrets(configPath, { allowPending: mode === "local" });
+  assertRequiredSecrets(configPath, {
+    allowPending: mode === "local",
+    platform: mode === "platform",
+  });
   applyMigrations(state, configPath);
   const published = publish(configPath);
   if (mode === "local") syncPendingSecrets(configPath);
+  // Platform mode may initialize a missing signing key before migration. The
+  // post-publish check only verifies names; it must never rotate a key again.
   assertRequiredSecrets(configPath);
 
   const publicUrl = normalizePublicUrl(

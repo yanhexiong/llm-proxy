@@ -311,7 +311,7 @@ test("missing platform Secret stops before migration and publish", () => {
   try {
     const output = `${run.result.stdout}\n${run.result.stderr}`;
     assert.notEqual(run.result.status, 0);
-    assert.match(output, /Worker 缺少必要 Secret/);
+    assert.match(output, /Worker 缺少管理员凭据 Secret/);
     assert.equal(run.commands.some((command) => command.args.includes("whoami")), false);
     assert.equal(
       run.commands.some((command) => command.args.includes("migrations")),

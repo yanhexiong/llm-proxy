@@ -20,3 +20,5 @@ backup-*.sql
 playwright-report/
 test-results/
 *.tsbuildinfo
+.deploy-template/
+.gateway-button-check*/

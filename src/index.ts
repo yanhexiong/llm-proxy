@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { assertSameOrigin } from "./auth";
 import { admin } from "./admin";
+import { hasValidAdminPasswordConfiguration } from "./crypto";
 import { GatewayError, errorResponse } from "./http";
 import { handleProxy } from "./proxy";
 import { parseProxyRoute } from "./routes";
@@ -20,7 +21,7 @@ app.route("/api/admin", admin);
 app.get("/health", async (c) => {
   try {
     const schema = await c.env.DB.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name IN ('aliases', 'links', 'admin_sessions', 'login_attempts')").first<{ n: number }>();
-    const configured = schema?.n === 4 && Boolean(c.env.LINK_SIGNING_SECRET && c.env.ADMIN_USERNAME && c.env.ADMIN_PASSWORD_HASH);
+    const configured = schema?.n === 4 && Boolean(c.env.LINK_SIGNING_SECRET && c.env.ADMIN_USERNAME) && hasValidAdminPasswordConfiguration(c.env);
     return c.json({ status: configured ? "ready" : "not_ready" }, configured ? 200 : 503);
   } catch {
     return c.json({ status: "not_ready" }, 503);

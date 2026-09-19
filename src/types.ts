@@ -7,7 +7,10 @@ export interface Env {
   ASSETS: Fetcher;
   LINK_SIGNING_SECRET: string;
   ADMIN_USERNAME: string;
-  ADMIN_PASSWORD_HASH: string;
+  /** Preferred Worker Secret: the original administrator password. */
+  ADMIN_PASSWORD?: string;
+  /** Legacy Worker Secret retained for existing deployments. */
+  ADMIN_PASSWORD_HASH?: string;
   DEFAULT_MAX_TOKENS?: string;
   SESSION_TTL_SECONDS?: string;
   MAX_STREAM_STATE_BYTES?: string;

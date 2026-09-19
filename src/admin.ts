@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { deleteCookie, setCookie } from "hono/cookie";
 import { requireAdmin, signCredential, type AppContext } from "./auth";
-import { randomToken, sha256, verifyPbkdf2Password } from "./crypto";
+import { randomToken, sha256, verifyAdminPassword } from "./crypto";
 import { executeBatch, findAlias, findLink, listAliases, listLinks } from "./db";
 import { GatewayError, parseJsonObject } from "./http";
 import { displayBaseUrl, isProtocol, normalizeBaseUrl, proxyUrls, upstreamEndpoint } from "./routes";
@@ -68,7 +68,7 @@ admin.post("/login", async (c) => {
     throw new GatewayError(429, "rate_limit_error", "Too many failed login attempts; try again later");
   }
   const usernameValid = username === c.env.ADMIN_USERNAME;
-  const passwordValid = await verifyPbkdf2Password(password, c.env.ADMIN_PASSWORD_HASH);
+  const passwordValid = await verifyAdminPassword(password, c.env);
   if (!usernameValid || !passwordValid) {
     await recordLoginFailure(c.env.DB, attemptKey);
     throw new GatewayError(401, "invalid_credentials", "Invalid username or password");

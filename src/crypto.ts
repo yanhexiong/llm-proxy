@@ -1,5 +1,12 @@
 const encoder = new TextEncoder();
 
+const MIN_ADMIN_PASSWORD_CHARACTERS = 8;
+
+export interface AdminPasswordBindings {
+  ADMIN_PASSWORD?: unknown;
+  ADMIN_PASSWORD_HASH?: unknown;
+}
+
 export function base64Url(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
@@ -50,8 +57,15 @@ export function constantTimeEqual(left: string, right: string): boolean {
   return difference === 0;
 }
 
-export async function verifyPbkdf2Password(password: string, encoded: string): Promise<boolean> {
-  const [algorithm, iterationsText, saltText, expected] = encoded.split("$");
+function parsePbkdf2PasswordHash(encoded: unknown): {
+  salt: Uint8Array<ArrayBuffer>;
+  expected: string;
+  iterations: number;
+} | null {
+  if (typeof encoded !== "string") return null;
+  const fields = encoded.split("$");
+  if (fields.length !== 4) return null;
+  const [algorithm, iterationsText, saltText, expected] = fields;
   const iterations = Number(iterationsText);
   if (
     (algorithm !== "pbkdf2_sha256" && algorithm !== "pbkdf2-sha256") ||
@@ -60,10 +74,28 @@ export async function verifyPbkdf2Password(password: string, encoded: string): P
     !Number.isSafeInteger(iterations) ||
     iterations < 100_000
   ) {
-    return false;
+    return null;
   }
   const salt = algorithm === "pbkdf2_sha256" ? decodeBase64Url(saltText) : encoder.encode(saltText);
-  if (!salt) return false;
+  const expectedBytes = expected ? decodeBase64Url(expected) : null;
+  // PBKDF2-SHA-256 emits exactly 32 bytes. Reject malformed values before any
+  // expensive derivation and keep health checks from accepting unusable hashes.
+  if (!salt || salt.byteLength === 0 || !expectedBytes || expectedBytes.byteLength !== 32) return null;
+  return { salt, expected, iterations };
+}
+
+export function isValidAdminPassword(password: unknown): password is string {
+  return typeof password === "string" && Array.from(password).length >= MIN_ADMIN_PASSWORD_CHARACTERS;
+}
+
+export function isValidPbkdf2PasswordHash(encoded: unknown): encoded is string {
+  return parsePbkdf2PasswordHash(encoded) !== null;
+}
+
+export async function verifyPbkdf2Password(password: string, encoded: unknown): Promise<boolean> {
+  const parsed = parsePbkdf2PasswordHash(encoded);
+  if (!parsed) return false;
+  const { salt, iterations, expected } = parsed;
   const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
   const actualBits = await crypto.subtle.deriveBits(
     { name: "PBKDF2", hash: "SHA-256", salt, iterations },
@@ -71,4 +103,22 @@ export async function verifyPbkdf2Password(password: string, encoded: string): P
     256,
   );
   return constantTimeEqual(base64Url(new Uint8Array(actualBits)), expected);
+}
+
+export function hasValidAdminPasswordConfiguration(bindings: AdminPasswordBindings): boolean {
+  // An explicitly present ADMIN_PASSWORD is authoritative, including an empty
+  // or weak value. Never fall back to a legacy hash in that case.
+  if (bindings.ADMIN_PASSWORD !== undefined) return isValidAdminPassword(bindings.ADMIN_PASSWORD);
+  return isValidPbkdf2PasswordHash(bindings.ADMIN_PASSWORD_HASH);
+}
+
+export async function verifyAdminPassword(password: string, bindings: AdminPasswordBindings): Promise<boolean> {
+  if (bindings.ADMIN_PASSWORD !== undefined) {
+    if (!isValidAdminPassword(bindings.ADMIN_PASSWORD)) return false;
+    // Both values are SHA-256 digests with a fixed length, so the comparison
+    // does not expose the configured password's length or contents.
+    const [actual, expected] = await Promise.all([sha256(password), sha256(bindings.ADMIN_PASSWORD)]);
+    return constantTimeEqual(actual, expected);
+  }
+  return verifyPbkdf2Password(password, bindings.ADMIN_PASSWORD_HASH);
 }
