@@ -12,6 +12,7 @@ import {
   requiredString,
 } from "./common";
 import { decodeResponsesResponse } from "./responses";
+import { isThinkingBlock, stripThinkingResponse } from "./thinking-compat";
 import type { FinishReason, InternalUsage, Protocol, SseEvent, StreamEvent } from "./types";
 
 /** Incremental SSE parser. TextDecoder keeps a UTF-8 code point split across network chunks intact. */
@@ -197,6 +198,141 @@ function newDecodeState(): StreamDecodeState {
   };
 }
 
+interface ThinkingSanitizeState {
+  messageIndexes: Set<number>;
+  responseIndexes: Set<number>;
+}
+
+function newThinkingSanitizeState(): ThinkingSanitizeState {
+  return { messageIndexes: new Set(), responseIndexes: new Set() };
+}
+
+/**
+ * Remove only known provider-thinking frames before the normal decoder sees
+ * them. Unknown frames still reach the strict decoder and can fail loudly.
+ */
+function sanitizeThinkingFrame(
+  protocol: Protocol,
+  frame: SseEvent,
+  state: ThinkingSanitizeState,
+): SseEvent | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(frame.data || "{}");
+  } catch {
+    // Keep malformed data on the normal path so it remains a stream error.
+    return frame;
+  }
+  if (!isRecord(parsed)) return frame;
+  const type = typeof parsed.type === "string" ? parsed.type : frame.event;
+  if (isStreamErrorFrame(type, parsed)) return frame;
+
+  if (protocol === "messages") return sanitizeMessagesThinking(frame, parsed, type, state);
+  if (protocol === "chat") return sanitizeChatThinking(frame, parsed);
+  return sanitizeResponsesThinking(frame, parsed, type, state);
+}
+
+function sanitizeMessagesThinking(
+  frame: SseEvent,
+  payload: Record<string, unknown>,
+  type: string | undefined,
+  state: ThinkingSanitizeState,
+): SseEvent | null {
+  if (type === "content_block_start") {
+    const block = isRecord(payload.content_block) ? payload.content_block : undefined;
+    if (isThinkingBlock(block)) {
+      const index = nonNegativeIndex(payload.index);
+      if (index !== undefined) state.messageIndexes.add(index);
+      return null;
+    }
+  }
+  if (type === "content_block_delta") {
+    const index = nonNegativeIndex(payload.index);
+    if (index !== undefined && state.messageIndexes.has(index)) return null;
+    const delta = isRecord(payload.delta) ? payload.delta : undefined;
+    const deltaType = typeof delta?.type === "string" ? delta.type : undefined;
+    if (deltaType === "thinking_delta" || deltaType === "signature_delta") return null;
+  }
+  if (type === "content_block_stop") {
+    const index = nonNegativeIndex(payload.index);
+    if (index !== undefined && state.messageIndexes.delete(index)) return null;
+  }
+  if (type === "thinking_start" || type === "thinking_delta" || type === "thinking_end" || type === "signature_delta") return null;
+  return frame;
+}
+
+function sanitizeChatThinking(frame: SseEvent, payload: Record<string, unknown>): SseEvent {
+  const nextPayload = { ...payload };
+  let changed = false;
+  if (nextPayload.error === null) {
+    delete nextPayload.error;
+    changed = true;
+  }
+  if (!Array.isArray(nextPayload.choices)) {
+    return changed ? { ...frame, data: JSON.stringify(nextPayload) } : frame;
+  }
+  const choices = nextPayload.choices.map((choice) => {
+    if (!isRecord(choice) || !isRecord(choice.delta)) return choice;
+    const delta = { ...choice.delta };
+    for (const field of ["reasoning_content", "thinking", "reasoning", "reasoning_details", "signature"]) {
+      if (field in delta) {
+        delete delta[field];
+        changed = true;
+      }
+    }
+    return changed ? { ...choice, delta } : choice;
+  });
+  return changed ? { ...frame, data: JSON.stringify({ ...nextPayload, choices }) } : frame;
+}
+
+function sanitizeResponsesThinking(
+  frame: SseEvent,
+  payload: Record<string, unknown>,
+  type: string | undefined,
+  state: ThinkingSanitizeState,
+): SseEvent | null {
+  if (typeof type === "string" && type.startsWith("response.reasoning_")) return null;
+  if (type === "response.output_item.added") {
+    const item = isRecord(payload.item) ? payload.item : undefined;
+    if (isThinkingBlock(item)) {
+      const index = nonNegativeIndex(payload.output_index);
+      if (index !== undefined) state.responseIndexes.add(index);
+      return null;
+    }
+  }
+  if (type === "response.output_item.done") {
+    const item = isRecord(payload.item) ? payload.item : undefined;
+    const index = nonNegativeIndex(payload.output_index);
+    if (isThinkingBlock(item) || (index !== undefined && state.responseIndexes.has(index))) {
+      if (index !== undefined) state.responseIndexes.delete(index);
+      return null;
+    }
+  }
+  if (type === "response.content_part.added") {
+    const part = isRecord(payload.part) ? payload.part : undefined;
+    if (isThinkingBlock(part) || (typeof part?.type === "string" && part.type.startsWith("reasoning"))) return null;
+  }
+  const outputIndex = nonNegativeIndex(payload.output_index);
+  if (outputIndex !== undefined && state.responseIndexes.has(outputIndex) &&
+    (type === "response.content_part.done" || type === "response.output_text.delta" || type === "response.output_text.done")) return null;
+  if (type === "response.completed" || type === "response.incomplete" || type === "response.failed") {
+    const terminal = isRecord(payload.response) ? payload.response : payload;
+    const stripped = stripThinkingResponse("responses", terminal);
+    const next = terminal === payload ? stripped : { ...payload, response: stripped };
+    return { ...frame, data: JSON.stringify(next) };
+  }
+  return frame;
+}
+
+function isStreamErrorFrame(type: string | undefined, payload: Record<string, unknown>): boolean {
+  return type === "error" || type === "response.error" || type === "response.failed" ||
+    (payload.error !== undefined && payload.error !== null);
+}
+
+function nonNegativeIndex(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
 /** Convert one source SSE frame to one or more protocol-neutral stream events. */
 export function decodeProtocolSseEvent(protocol: Protocol, event: SseEvent, state = newDecodeState()): StreamEvent[] {
   if (event.data === "[DONE]") {
@@ -296,7 +432,7 @@ function decodeMessagesStream(payload: Record<string, unknown>, eventName: strin
 }
 
 function decodeChatStream(payload: Record<string, unknown>, state: StreamDecodeState): StreamEvent[] {
-  if (payload.error !== undefined) return [{ type: "error", error: decodeStreamError(payload.error) }];
+  if (payload.error !== undefined && payload.error !== null) return [{ type: "error", error: decodeStreamError(payload.error) }];
   state.id = typeof payload.id === "string" ? payload.id : state.id;
   state.model = typeof payload.model === "string" ? payload.model : state.model;
   const choices = Array.isArray(payload.choices) ? payload.choices : [];
@@ -796,6 +932,8 @@ export interface ConvertSseOptions {
   /** Maximum aggregate state permitted by the caller; conversion remains streaming. */
   maxStateBytes?: number;
   requestId?: string;
+  /** Strict preserves native reasoning errors; compatible removes known thinking frames. */
+  thinkingMode?: "strict" | "compatible";
 }
 
 /** Transform an upstream SSE ReadableStream while preserving streaming/backpressure. */
@@ -811,6 +949,7 @@ export function convertSseStream(
   const parser = new SseParser();
   const decodeState = newDecodeState();
   const encodeState = newEncodeState();
+  const thinkingState = newThinkingSanitizeState();
   const pending: Uint8Array[] = [];
   let upstreamDone = false;
   let outputClosed = false;
@@ -830,16 +969,21 @@ export function convertSseStream(
   };
 
   const processFrame = (frame: SseEvent) => {
-    const events = decodeProtocolSseEvent(upstream, frame, decodeState);
-    for (const event of events) {
-      for (const encoded of encodeProtocolStreamEvent(client, event, encodeState)) queueEncoded(encoded);
-      if (options.maxStateBytes !== undefined && streamStateBytes(decodeState, encodeState) > options.maxStateBytes) {
-        throw new ProtocolConversionError("stream state exceeded the configured memory limit", {
-          code: "stream_error",
-          path: "stream.state",
-          status: 413,
-        });
+    const sanitized = options.thinkingMode === "compatible"
+      ? sanitizeThinkingFrame(upstream, frame, thinkingState)
+      : frame;
+    if (sanitized) {
+      const events = decodeProtocolSseEvent(upstream, sanitized, decodeState);
+      for (const event of events) {
+        for (const encoded of encodeProtocolStreamEvent(client, event, encodeState)) queueEncoded(encoded);
       }
+    }
+    if (options.maxStateBytes !== undefined && streamStateBytes(decodeState, encodeState, thinkingState) > options.maxStateBytes) {
+      throw new ProtocolConversionError("stream state exceeded the configured memory limit", {
+        code: "stream_error",
+        path: "stream.state",
+        status: 413,
+      });
     }
   };
 
@@ -953,7 +1097,7 @@ function isReadableStream(value: unknown): value is ReadableStream<Uint8Array | 
   return typeof value === "object" && value !== null && typeof (value as { getReader?: unknown }).getReader === "function";
 }
 
-function streamStateBytes(decode: StreamDecodeState, encode: StreamEncodeState): number {
+function streamStateBytes(decode: StreamDecodeState, encode: StreamEncodeState, thinking?: ThinkingSanitizeState): number {
   return JSON.stringify({
     id: decode.id,
     model: decode.model,
@@ -968,6 +1112,8 @@ function streamStateBytes(decode: StreamDecodeState, encode: StreamEncodeState):
     toolOutputIndexes: [...encode.toolOutputIndexes.entries()],
     toolContentIndexes: [...encode.toolContentIndexes.entries()],
     outputItems: encode.outputItems,
+    thinkingMessageIndexes: thinking ? [...thinking.messageIndexes.values()] : [],
+    thinkingResponseIndexes: thinking ? [...thinking.responseIndexes.values()] : [],
   }).length;
 }
 

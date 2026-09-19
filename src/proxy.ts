@@ -115,6 +115,7 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
     const protocolHeaders = upstreamHeaders(c.req.raw, route.upstreamProtocol, requestId);
     const headers = passthrough ? passthroughRequestHeaders(c.req.raw, protocolHeaders) : protocolHeaders;
     const sameProtocol = route.clientProtocol === route.upstreamProtocol;
+    const thinkingMode = c.env.CROSS_PROTOCOL_THINKING === "strict" ? "strict" : "compatible";
     let body: BodyInit | null;
     let streamingRequested = false;
 
@@ -125,6 +126,7 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
       streamingRequested = clientBody.stream === true;
       try {
         const converted = convertRequest(route.clientProtocol, route.upstreamProtocol, clientBody, {
+          thinkingMode,
           defaultMaxTokens: Number(c.env.DEFAULT_MAX_TOKENS ?? "4096"),
         });
         body = JSON.stringify(prepareConvertedUpstream(bound.baseUrl, route.upstreamProtocol, converted));
@@ -147,6 +149,7 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
     }
     const responseHeaders = passthrough ? passthroughResponseHeaders(upstream.headers) : forwardableResponseHeaders(upstream.headers);
     responseHeaders.set("x-request-id", requestId);
+    if (!passthrough && !sameProtocol) responseHeaders.set("x-gateway-thinking-mode", thinkingMode);
 
     if (passthrough || sameProtocol) {
       if (c.req.method === "HEAD") await upstream.body?.cancel();
@@ -164,6 +167,7 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
       responseHeaders.set("cache-control", "no-cache");
       try {
         const stream = convertSseStream(route.upstreamProtocol, route.clientProtocol, upstream.body, {
+          thinkingMode,
           maxStateBytes: Number(c.env.MAX_STREAM_STATE_BYTES ?? "8388608"),
           requestId,
           onError: (error) => console.error(JSON.stringify({
@@ -184,7 +188,7 @@ export async function handleProxy(c: Context<{ Bindings: Env }>, route: ProxyRou
     try { upstreamBody = parseJsonObject(JSON.parse(upstreamText)); }
     catch { throw new GatewayError(502, "upstream_protocol_error", "Upstream returned invalid JSON"); }
     try {
-      const converted = convertResponse(route.upstreamProtocol, route.clientProtocol, upstreamBody);
+      const converted = convertResponse(route.upstreamProtocol, route.clientProtocol, upstreamBody, { thinkingMode });
       responseHeaders.set("content-type", "application/json; charset=utf-8");
       return new Response(JSON.stringify(converted), { status: upstream.status, headers: responseHeaders });
     } catch (error) {

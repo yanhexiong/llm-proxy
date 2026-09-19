@@ -68,6 +68,8 @@ pnpm 将 `setup`、`deploy`、`doctor` 保留为自身命令，因此这里必�
 
 管理员登录后可以建立别名、生成链接、查看/复制链接和逐条撤销链接。链接生成不访问上游，也不会保存上游 API Key。别名更新会影响已有别名链接；删除别名前后端会先撤销关联链接，数据库保留链接审计记录。
 
+跨协议生成默认采用思考兼容模式：Claude Code 等客户端携带 `thinking` 时可以继续请求，无法映射的思考控制、预算和私有思考状态会被忽略，保留正文、工具调用和用量。它不保证保留原生思考设置、过程或签名；需要完整原生思考时使用同协议链接。响应头 `x-gateway-thinking-mode: compatible` 标明此行为，详细规则见[协议兼容说明](docs/compatibility.md#思考兼容模式)。
+
 支持的协议标识如下：
 
 | 标识 | 协议 | 客户端端点 |
@@ -189,6 +191,7 @@ pnpm exec wrangler d1 execute <database-name> --remote --file backup-<date>.sql
 ```text
 pnpm run test:live matrix
 pnpm run test:live models
+pnpm run test:live thinking
 pnpm run test:live sdk
 pnpm run test:live tools
 pnpm run test:live images
@@ -196,4 +199,4 @@ pnpm run test:live truncate
 pnpm run test:live management
 ```
 
-`matrix` 覆盖三种客户端协议和三种上游协议的流式/非流式组合，`sdk` 使用官方 OpenAI/Anthropic SDK 汇总流，`tools` 验证两次并行函数调用和完整续轮，`images` 使用程序生成的红色 PNG 验证图片输入。结果位于 `test-results/live-*.json`。这些命令会实际调用模型并产生上游费用。当前脚本为本轮 DeepSeek 验证配置了 Messages 的 `/anthropic/v1` 基础路径；更换供应商时需调整对应基础路径。
+`matrix` 覆盖三种客户端协议和三种上游协议的流式/非流式组合，`sdk` 使用官方 OpenAI/Anthropic SDK 汇总流，`tools` 验证两次并行函数调用和完整续轮，`images` 使用程序生成的红色 PNG 验证图片输入，`thinking` 验证 Messages 思考设置及历史思考块的跨协议兼容。结果位于 `test-results/live-*.json`，思考兼容的范围和结果见[验收记录](docs/thinking-compat-verification.md)。这些命令会实际调用模型并产生上游费用。当前脚本为本轮 DeepSeek 验证配置了 Messages 的 `/anthropic/v1` 基础路径；更换供应商时需调整对应基础路径。

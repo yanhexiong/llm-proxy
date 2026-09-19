@@ -3,6 +3,7 @@ import { decodeChatRequest, decodeChatResponse, encodeChatRequest, encodeChatRes
 import { decodeMessagesRequest, decodeMessagesResponse, encodeMessagesRequest, encodeMessagesResponse } from "./messages";
 import { decodeResponsesRequest, decodeResponsesResponse, encodeResponsesRequest, encodeResponsesResponse } from "./responses";
 import { convertSseStream, type ConvertSseOptions } from "./sse";
+import { stripThinkingRequest, stripThinkingResponse } from "./thinking-compat";
 import { PROTOCOLS, type ConversionOptions, type ConversionResult, type InternalRequest, type InternalResponse, type PassthroughResult, type Protocol } from "./types";
 
 export * from "./types";
@@ -12,6 +13,7 @@ export * from "./messages";
 export * from "./chat";
 export * from "./responses";
 export * from "./sse";
+export * from "./thinking-compat";
 
 export const PASSTHROUGH_MESSAGES = { kind: "passthrough", protocol: "messages" } as const;
 export const PASSTHROUGH_RESPONSES = { kind: "passthrough", protocol: "responses" } as const;
@@ -41,7 +43,7 @@ export function convertRequest(
   assertProtocol(client, "client");
   assertProtocol(upstream, "upstream");
   if (client === upstream) return passthrough(client, body);
-  const request = decodeRequest(client, body);
+  const request = decodeRequest(client, options.thinkingMode === "compatible" ? stripThinkingRequest(client, body) : body);
   return encodeRequest(upstream, request, options);
 }
 
@@ -56,17 +58,17 @@ export function convertRequestResult(
   return { kind: "converted", from: client, to: upstream, body: convertRequest(client, upstream, body, options) };
 }
 
-export function convertResponse(upstream: Protocol, client: Protocol, body: unknown): unknown {
+export function convertResponse(upstream: Protocol, client: Protocol, body: unknown, options: ConversionOptions = {}): unknown {
   assertProtocol(upstream, "upstream");
   assertProtocol(client, "client");
   if (upstream === client) return passthrough(client, body);
-  const response = decodeResponse(upstream, body);
+  const response = decodeResponse(upstream, options.thinkingMode === "compatible" ? stripThinkingResponse(upstream, body) : body);
   return encodeResponse(client, response);
 }
 
-export function convertResponseResult(upstream: Protocol, client: Protocol, body: unknown): ConversionResult {
+export function convertResponseResult(upstream: Protocol, client: Protocol, body: unknown, options: ConversionOptions = {}): ConversionResult {
   if (upstream === client) return passthrough(client, body);
-  return { kind: "converted", from: upstream, to: client, body: convertResponse(upstream, client, body) };
+  return { kind: "converted", from: upstream, to: client, body: convertResponse(upstream, client, body, options) };
 }
 
 /** The proxy-facing stream API requested by the gateway plan. */

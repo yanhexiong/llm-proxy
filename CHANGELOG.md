@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4 - 2026-09-19
+
+- 跨协议生成默认采用思考兼容模式，`thinking: disabled/enabled/adaptive` 不再直接触发网关 400；同协议保持原始请求和响应。
+- 跨协议忽略无法等价映射的思考控制、预算、历史思考块及私有签名，保留正文、工具调用、用量和结束状态，不伪造原生推理状态。
+- 兼容过滤覆盖 JSON 和 SSE，包括思考后继续返回文本或工具调用、历史工具结果续轮；响应头标明 `x-gateway-thinking-mode: compatible`。
+- 需要原有严格拒绝行为时可设置 `CROSS_PROTOCOL_THINKING=strict`；转换库默认仍严格，HTTP 网关显式启用兼容模式。
 ## 0.1.3 - 2026-09-19
 
 - 代理链接增加通用 HTTP 透传：三种生成接口继续协议转换，其他路径（如 `models`、`token_usage`、`api/usage/token`）自动转发，无需供应商或接口白名单。

@@ -15,6 +15,7 @@ export interface Env {
   SESSION_TTL_SECONDS?: string;
   MAX_STREAM_STATE_BYTES?: string;
   UPSTREAM_TIMEOUT_MS?: string;
+  CROSS_PROTOCOL_THINKING?: "compatible" | "strict";
 }
 
 export interface LinkRecord {

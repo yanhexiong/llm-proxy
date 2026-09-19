@@ -134,6 +134,8 @@ export interface InternalResponse {
 }
 
 export interface ConversionOptions {
+  /** The HTTP gateway opts into compatible mode; library calls stay strict. */
+  thinkingMode?: "strict" | "compatible";
   /** Default used only when encoding a Messages request without a limit. */
   defaultMaxOutputTokens?: number;
   /** Compatibility alias used by the gateway proxy configuration. */

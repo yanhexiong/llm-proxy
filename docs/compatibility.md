@@ -18,9 +18,22 @@
 | 采样参数、最大输出、停止原因、用量 | 原样透传 | 按目标协议映射 | 缓存读/写用量不混成普通输入 |
 | `n > 1` | 由上游决定 | 拒绝 | 首版只支持一个生成结果 |
 | `previous_response_id`、`store:true`、后台任务 | 由上游决定 | 拒绝 | 跨协议不伪造服务端状态 |
-| 原生搜索、代码执行、加密推理签名 | 由上游决定 | 拒绝或原样透传 | 不静默丢失关键语义 |
+| 思考控制、预算、原生思考块及签名 | 原样透传 | 默认兼容模式忽略，严格模式拒绝 | 保留正文、工具和总用量，不迁移原生推理状态 |
+| 原生搜索、代码执行等其他不可映射功能 | 由上游决定 | 拒绝 | 不伪造关键语义 |
 
-无法表达的关键参数、内容块或工具类型应返回包含字段位置和原因的客户端协议错误，而不是静默删除。请求已经开始流式输出后，上游错误通过目标协议可表达的错误事件或连接异常结束传播，不补造成功事件。
+除明确声明的思考兼容模式外，无法表达的关键参数、内容块或工具类型仍返回包含字段位置和原因的客户端协议错误。请求已经开始流式输出后，上游错误通过目标协议可表达的错误事件或连接异常结束传播，不补造成功事件。
+
+## 思考兼容模式
+
+HTTP 网关的跨协议生成默认使用 `compatible` 模式，解决 Messages 客户端自动携带 `thinking` 时被网关拒绝的问题，包括 `disabled`、`enabled`、`adaptive`。兼容处理同时覆盖 Chat 的 `reasoning_effort` 等控制，以及 Responses 的 `reasoning` 和推理状态 include 项。
+
+这种模式保留实际正文、工具定义／调用／结果、总用量和结束状态，但不迁移不可等价表达的思考预算、历史 thinking/redacted_thinking 块、加密 reasoning 项和私有签名。JSON 及 SSE 响应中的私有思考内容不作为正文输出，也不补造另一个供应商的签名。上游仍可能按模型默认行为进行内部推理，不能据此认为目标模型一定关闭或完整保留了源协议的思考能力。
+
+兼容模式只清理协议结构中的思考字段，工具参数、工具结果、用户文字中同名的 `thinking`、`signature`、`reasoning` 数据不会被递归删除。其他无法映射的状态（例如 `previous_response_id`、服务端原生工具）仍保持既有校验。
+
+跨协议生成响应使用 `x-gateway-thinking-mode: compatible` 标明此行为。需要严格拒绝不可映射内容时，可在 Worker 设置普通变量 `CROSS_PROTOCOL_THINKING=strict`；部署表单无需增加字段。转换库自身默认严格，仅当调用者传入 `thinkingMode: "compatible"` 时启用兼容。
+
+同协议链接和通用 HTTP 透传不经过这些过滤，保留原始 thinking、签名、响应和 SSE。要求完整原生思考过程或状态连续性时，应使用与上游相同的协议。
 
 ## URL 和认证
 
@@ -46,7 +59,7 @@ SSE 解析必须能处理跨网络分块的 UTF-8、多个事件合并、延迟�
 
 ## DeepSeek 兼容配置
 
-DeepSeek 的 `deepseek-flash` 默认开启原生思考模式。思考签名和原生推理状态不在本项目跨协议可转换范围内，工具续轮还可能要求原样回传推理内容。因此，访问 `api.deepseek.com` 的跨协议请求会显式关闭上游思考：Chat/Messages 发送 `thinking: {type: "disabled"}`，Responses 发送 `reasoning: {effort: "none"}`。同协议请求保留全部原始字段和上游默认行为；显式要求跨协议原生思考仍返回兼容性错误。该适配不改变模型名称，也不作用于其他上游域名。
+DeepSeek 的 `deepseek-flash` 默认开启原生思考模式。工具续轮可能要求回传专有推理状态，因此保留现有适配：访问 `api.deepseek.com` 的跨协议请求显式关闭上游思考，Chat/Messages 发送 `thinking: {type: "disabled"}`，Responses 发送 `reasoning: {effort: "none"}`。客户端携带的思考控制先按上述兼容模式处理；同协议请求保留全部原始字段和上游默认行为。该适配不改变模型名称，也不作用于其他上游域名。
 
 DeepSeek 上游在生成器中的基础地址：Chat 和 Responses 填 `https://api.deepseek.com`；Messages 填 `https://api.deepseek.com/anthropic/v1`。后者包含 `/v1`，因为网关只追加 `messages`，不同于 Anthropic SDK 自行追加 `/v1/messages`。
 

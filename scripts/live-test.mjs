@@ -68,7 +68,7 @@ async function modelCall(url, protocol, body) {
       : { authorization: `Bearer ${apiKey}` }) }, body: JSON.stringify(body),
   });
   const text = await response.text();
-  return { status: response.status, ms: Date.now() - began, text, contentType: response.headers.get("content-type") };
+  return { status: response.status, ms: Date.now() - began, text, contentType: response.headers.get("content-type"), thinkingMode: response.headers.get("x-gateway-thinking-mode") };
 }
 function events(text) {
   return text.split(/\r?\n\r?\n/).map(frame => {
@@ -270,7 +270,38 @@ try {
       });
     } else for (const client of protocols) for (const upstream of protocols) {
       const link = links[`${client}->${upstream}`];
-      if (mode === "models") {
+      if (mode === "thinking") {
+        if (client !== "messages" || upstream === client) continue;
+        for (const thinkingType of ["disabled", "enabled", "adaptive"]) for (const stream of [false, true]) {
+          await record(`${client}->${upstream}:thinking-${thinkingType}-${stream ? "stream" : "json"}`, async () => {
+            const body = payload(client, stream);
+            body.max_tokens = thinkingType === "enabled" ? 2048 : 256;
+            body.thinking = thinkingType === "enabled" ? { type: "enabled", budget_tokens: 1024 } : { type: thinkingType };
+            if (thinkingType === "adaptive") body.output_config = { effort: "high" };
+            const response = await modelCall(link.endpoint, client, body);
+            assert.equal(response.thinkingMode, "compatible");
+            return { ...verify(client, response, stream), mode: response.thinkingMode };
+          });
+        }
+        for (const stream of [false, true]) await record(`${client}->${upstream}:thinking-tool-history-${stream ? "stream" : "json"}`, async () => {
+          const body = { ...toolRequest(client), thinking: { type: "adaptive" }, output_config: { effort: "high" } };
+          delete body.stream;
+          const first = await sdkResponse(link, body, stream);
+          const { followup, count } = toolFollowup(client, body, first);
+          const assistant = followup.messages.find(message => message.role === "assistant");
+          assert(assistant && Array.isArray(assistant.content));
+          assistant.content = [
+            { type: "thinking", thinking: "Historical provider metadata.", signature: "opaque-test-signature" },
+            { type: "redacted_thinking", data: "opaque-test-state" },
+            ...assistant.content,
+          ];
+          const second = await sdkResponse(link, followup, false);
+          const detail = verify(client, { status: 200, text: JSON.stringify(second) }, false);
+          assert.equal(detail.answer.trim(), "TOOL_OK");
+          return { ...detail, tool_calls: count, historical_state_filtered: true };
+        });
+      }
+      else if (mode === "models") {
         const proxyRoot = link.base_url.replace(/\/v1$/, "");
         const upstreamResponse = await request(`${upstreamBases[upstream]}/models`, { headers: upstream === "messages"
           ? { "x-api-key": apiKey, "anthropic-version": "2023-06-01" }
