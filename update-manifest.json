@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "version": "0.1.5",
+  "source_commit": "88f1fe75a0059fd9a30ee0c2a949fb73ea675aac",
+  "files": [
+    {
+      "path": ".node-version",
+      "sha256": "68ca3fba3b7e864770cb61aeb306d4bd4354b68ab4dd38450860c5d823e42a53"
+    },
+    {
+      "path": "deploy.mjs",
+      "sha256": "695fe5145718dbb08b82ed3ac34b42f4f5e6cd6de96b18eb1ea0e6dff1c8e478"
+    },
+    {
+      "path": "lib/cloudflare-secrets.mjs",
+      "sha256": "a23e8f82a468029b383483420288640d325720998b52de5db84cdc6a06029b56"
+    },
+    {
+      "path": "migrations/0001_initial.sql",
+      "sha256": "e55cf4af5d5901135666ab57040959dc229be32fbe2ed69efb7943ecbc07500e"
+    },
+    {
+      "path": "package.json",
+      "sha256": "ce0cb8fccb628a91c5aa42745807c79845f76918c73a73c8b75c9a0a49b09cd7"
+    },
+    {
+      "path": "public/assets/index-ggXhCs7T.css",
+      "sha256": "fc0b40aace88ec05ffa86b122baba240924d39bcb86ab5cb5f21569792724dd2"
+    },
+    {
+      "path": "public/assets/index-tyBzLZzH.js",
+      "sha256": "b217a2e08eeabadfb892c6d159611595fb62da22b481ee71d25deb3c7a3cfb90"
+    },
+    {
+      "path": "public/index.html",
+      "sha256": "7cff14f8908e1fd6eed3cb16dca75d5a1e18110edae6f6bbe3402cf698a8a4b2"
+    },
+    {
+      "path": "template-version.json",
+      "sha256": "46ad14c56d0e6c3a588cc1a49738b84b12e3bd475fe6928a5685ff1c83e6e224"
+    },
+    {
+      "path": "update-deploy-template.mjs",
+      "sha256": "d1e1fdba8229ac440498f320072b1657456525eb76ecc6a781b0c02f2e0fbdc9"
+    },
+    {
+      "path": "worker.js",
+      "sha256": "b6705a8bf664d1ec074f3c7c75b74fbd63623c735b7ac12ce74470a3e3f320ed"
+    }
+  ]
+}
