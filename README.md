@@ -17,6 +17,12 @@
 
 密码由 Cloudflare 加密保存为 Worker Secret。重新部署会保留签名密钥，已有链接继续有效。Cloudflare 自身的账号授权和资源名确认属于平台固定流程，本项目额外要求填写的配置只有账号、密码两项。[官方按钮机制说明](https://developers.cloudflare.com/workers/platform/deploy-buttons/)
 
+## 一键更新
+
+在你自己的部署仓库选择 **Actions → Update Worker → Run workflow**，选择 Cloudflare 连接的生产分支并运行。工作流同步最新预编译文件，保留 Worker 名称、D1、域名和原有 Secrets，再由 Cloudflare Builds 自动发布。无需本地编译或填写额外 Token；线上发布结果在 Cloudflare 的 Deployments 中查看。
+
+0.1.5 起的新按钮实例自带更新入口。0.1.2–0.1.4 的旧按钮实例只需补入一个工作流文件，以后也能点击更新。具体操作见[更新指南](docs/updating.md)。源码部署仍使用原有 `git pull` 和 `pnpm run deploy` 流程。
+
 ## 开发者：从源码部署
 
 要求：Node.js 22+、pnpm 12.4.2（仓库 `packageManager` 已固定），以及一个有 Workers 和 D1 权限的 Cloudflare 账户。

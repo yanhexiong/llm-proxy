@@ -33,6 +33,8 @@
 
 更换密码只需在 Cloudflare 修改 `ADMIN_PASSWORD` 并保存部署。更新部署包时保留自己实例的 Worker 名称、实际 D1 ID、域名和原有 Secrets。后文的命令行向导针对开发者和已有源码部署，不是按钮部署的必需步骤。
 
+0.1.5 起，按钮部署仓库自带 **Actions → Update Worker → Run workflow** 更新入口；旧按钮实例补入一个工作流文件即可接入。更新过程保留实例配置，完整操作及限制见[一键更新指南](updating.md)。
+
 参考：[Cloudflare 部署按钮](https://developers.cloudflare.com/workers/platform/deploy-buttons/)、[绑定自定义域名](https://developers.cloudflare.com/workers/configuration/routing/custom-domains/)。
 
 ## 维护预编译分支
